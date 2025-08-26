@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
@@ -337,16 +338,18 @@ public class Faceting {
 
   public static RunEvent getRunEvent(EventEmitter emitter, OpenLineageContext olContext) {
     OpenLineage ol = olContext.getOpenLineage();
+    OpenLineage.RunFacetsBuilder runFacetsBuilder =
+        ol.newRunFacetsBuilder()
+            .processing_engine(getProcessingEngineFacet(olContext))
+            .put("hive_query", getHiveQueryInfoFacet(olContext))
+            .put("hive_session", getHiveSessionInfoFacet(olContext))
+            .put("hive_properties", getHivePropertiesFacet(olContext));
+
+    // Add parent facet if configured
+    getParentRunFacet(olContext).ifPresent(runFacetsBuilder::parent);
+
     RunBuilder runBuilder =
-        ol.newRunBuilder()
-            .runId(emitter.getRunId())
-            .facets(
-                ol.newRunFacetsBuilder()
-                    .processing_engine(getProcessingEngineFacet(olContext))
-                    .put("hive_query", getHiveQueryInfoFacet(olContext))
-                    .put("hive_session", getHiveSessionInfoFacet(olContext))
-                    .put("hive_properties", getHivePropertiesFacet(olContext))
-                    .build());
+        ol.newRunBuilder().runId(emitter.getRunId()).facets(runFacetsBuilder.build());
 
     List<InputDataset> inputDatasets = getInputDatasets(olContext);
     List<OutputDataset> outputDatasets = getOutputDatasets(olContext, inputDatasets);
@@ -393,5 +396,54 @@ public class Faceting {
   private static String generateJobName(
       String jobName, List<InputDataset> inputDatasets, List<OutputDataset> outputDatasets) {
     return String.format("%s.%s", jobName.toLowerCase(), outputDatasets.get(0).getName());
+  }
+
+  private static Optional<OpenLineage.ParentRunFacet> getParentRunFacet(
+      OpenLineageContext olContext) {
+    Configuration conf = olContext.getHookContext().getConf();
+    
+    String parentRunId = conf.get("openlineage.parentRunId");
+    if (parentRunId == null) {
+      parentRunId = System.getenv("OPENLINEAGE_PARENT_RUN_ID");
+    }
+    
+    String parentJobName = conf.get("openlineage.parentJobName");
+    if (parentJobName == null) {
+      parentJobName = System.getenv("OPENLINEAGE_PARENT_JOB_NAME");
+    }
+    
+    String parentJobNamespace = conf.get("openlineage.parentJobNamespace");
+    if (parentJobNamespace == null) {
+      parentJobNamespace = System.getenv("OPENLINEAGE_PARENT_JOB_NAMESPACE");
+    }
+
+    if (parentRunId == null || parentJobName == null || parentJobNamespace == null) {
+      return Optional.empty();
+    }
+
+    try {
+      UUID parentRunUuid = UUID.fromString(parentRunId);
+      return Optional.of(
+          olContext
+              .getOpenLineage()
+              .newParentRunFacetBuilder()
+              .run(
+                  olContext
+                      .getOpenLineage()
+                      .newParentRunFacetRunBuilder()
+                      .runId(parentRunUuid)
+                      .build())
+              .job(
+                  olContext
+                      .getOpenLineage()
+                      .newParentRunFacetJobBuilder()
+                      .name(parentJobName)
+                      .namespace(parentJobNamespace)
+                      .build())
+              .build());
+    } catch (IllegalArgumentException e) {
+      log.warn("Invalid parent run ID format: {}", parentRunId, e);
+      return Optional.empty();
+    }
   }
 }
