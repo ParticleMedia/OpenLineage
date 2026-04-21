@@ -49,22 +49,25 @@ public class Parsing {
     // Add the other subqueries, if any
     for (String subAlias : qb.getSubqAliases()) {
       QBExpr qbExpr = qb.getSubqForAlias(subAlias);
-      query.getSubQueries().computeIfAbsent(subAlias, k -> new ArrayList<>());
-      if (qbExpr.getOpcode().equals(QBExpr.Opcode.NULLOP)) {
-        QB subQB = qbExpr.getQB();
-        query.getSubQueries().get(subAlias).add(buildQueryTree(subQB, outputTable));
-      } else {
-        // This could be, for example, a UNION query
-        QB subQB1 = qbExpr.getQBExpr1().getQB();
-        query.getSubQueries().get(subAlias).add(buildQueryTree(subQB1, outputTable));
-        QB subQB2 = qbExpr.getQBExpr2().getQB();
-        query.getSubQueries().get(subAlias).add(buildQueryTree(subQB2, outputTable));
-      }
+      List<QueryExpr> children =
+          query.getSubQueries().computeIfAbsent(subAlias, k -> new ArrayList<>());
+      collectQBExprChildren(qbExpr, outputTable, children);
     }
 
     // Parse the expressions in the query clauses (SELECT, JOIN, GROUP BY, etc.)
     Parsing.parseQueryExpressions(qb, outputTable, query);
     return query;
+  }
+
+  private static void collectQBExprChildren(
+      QBExpr qbExpr, String outputTable, List<QueryExpr> out) {
+    if (qbExpr.getOpcode() == QBExpr.Opcode.NULLOP) {
+      out.add(buildQueryTree(qbExpr.getQB(), outputTable));
+    } else {
+      // Set-op (UNION/INTERSECT/EXCEPT) — recurse; Hive chains these as a nested binary tree.
+      collectQBExprChildren(qbExpr.getQBExpr1(), outputTable, out);
+      collectQBExprChildren(qbExpr.getQBExpr2(), outputTable, out);
+    }
   }
 
   @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")

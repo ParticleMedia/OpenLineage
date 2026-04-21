@@ -393,6 +393,36 @@ public class ColumnLineageCollectorTest extends InMemoryHiveTestBase {
   }
 
   @Test
+  public void multiWayUnion() throws TException {
+    // Regression test: chained UNION ALL with 3+ branches used to NPE in
+    // Parsing.buildQueryTree because the nested QBExpr tree was not flattened.
+    createTable("t1", "a;int");
+    createTable("t2", "a;int");
+    createTable("t3", "a;int");
+    createTable("t4", "a;int");
+    createTable("t5", "a;int");
+    String queryString =
+        "CREATE TABLE xxx AS "
+            + "SELECT a FROM t1 UNION ALL "
+            + "SELECT a FROM t2 UNION ALL "
+            + "SELECT a FROM t3 UNION ALL "
+            + "SELECT a FROM t4 UNION ALL "
+            + "SELECT a FROM t5";
+    OutputCLL outputCLL = getOutputCLL(queryString, "default.xxx", "a;int");
+    assertThat(outputCLL.getInputTables().keySet())
+        .containsExactlyInAnyOrder(
+            "default.t1", "default.t2", "default.t3", "default.t4", "default.t5");
+    assertCountColumnDependencies(outputCLL, 5);
+    for (String source :
+        Arrays.asList(
+            "default.t1.a", "default.t2.a", "default.t3.a", "default.t4.a", "default.t5.a")) {
+      assertThat(outputCLL.getColumnDependencies().get("a").get(source))
+          .containsExactlyInAnyOrder(TransformationInfo.identity());
+    }
+    assertCountDatasetDependencies(outputCLL, 0);
+  }
+
+  @Test
   void simpleInsertValues() throws TException {
     createTable("t1", "a;int", "b;string");
     String queryString = "INSERT INTO t1 VALUES(99, 'abcd')";

@@ -2,6 +2,11 @@
 
 ## [Unreleased](https://github.com/OpenLineage/OpenLineage/compare/1.37.0...HEAD)
 
+### Fixed
+
+* **Hive: Fix NullPointerException when parsing queries with 3+ way set operations** [@ZizhuoTao](https://github.com/ZizhuoTao)  
+  *Flatten nested `QBExpr` trees in `Parsing.buildQueryTree` so chained `UNION ALL` / `INTERSECT` / `EXCEPT` branches are processed correctly. Previously only 2-way set operations were supported and N-way set operations crashed the hook.*
+
 ## [1.37.0](https://github.com/OpenLineage/OpenLineage/compare/1.36.0...1.37.0) - 2025-08-11
 
 ### Added

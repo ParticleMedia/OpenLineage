@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.openlineage.hive.InMemoryHiveTestBase;
 import io.openlineage.hive.util.HiveUtils;
+import java.util.List;
 import org.apache.hadoop.hive.ql.parse.SemanticAnalyzer;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFSum;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDFConcat;
@@ -170,5 +171,27 @@ public class ParsingTest extends InMemoryHiveTestBase {
                 .get(0);
     assertThat(orderColumn.getName()).isEqualTo("c");
     assertThat(orderColumn.getQueries().get(0).getId()).isEqualTo("t1");
+  }
+
+  @Test
+  void testMultiWayUnion() throws TException {
+    createTable("t1", "a;int", "b;string");
+    createTable("t2", "a;int", "b;string");
+    createTable("t3", "a;int", "b;string");
+    createTable("t4", "a;int", "b;string");
+    createTable("t5", "a;int", "b;string");
+    String queryString =
+        "CREATE TABLE t6 AS "
+            + "SELECT a, b FROM t1 UNION ALL "
+            + "SELECT a, b FROM t2 UNION ALL "
+            + "SELECT a, b FROM t3 UNION ALL "
+            + "SELECT a, b FROM t4 UNION ALL "
+            + "SELECT a, b FROM t5";
+    SemanticAnalyzer semanticAnalyzer = HiveUtils.analyzeQuery(hiveConf, queryState, queryString);
+    QueryExpr queryExpr = Parsing.buildQueryTree(semanticAnalyzer.getQB(), "default.t6");
+    assertThat(queryExpr.getSubQueries()).hasSize(1);
+    List<QueryExpr> branches = queryExpr.getSubQueries().values().iterator().next();
+    // Nested UNION QBExpr tree should be flattened into one entry per SELECT branch.
+    assertThat(branches).hasSize(5);
   }
 }
